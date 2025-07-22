@@ -6,202 +6,184 @@ import json
 from io import BytesIO
 import io
 import logging
+import shutil
+import gc
 
-# Configure logging
+# Logging setup
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger("alternative_handler")
+logger = logging.getLogger("handler")
 
-# Print startup info
 logger.info("=" * 40)
-logger.info("ALTERNATIVE HANDLER STARTING")
+logger.info("RUNPOD HANDLER STARTING")
 logger.info(f"Python version: {sys.version}")
-logger.info(f"Current directory: {os.getcwd()}")
+logger.info(f"Working dir: {os.getcwd()}")
 logger.info("=" * 40)
 
-# Import RunPod with error handling
+# Import runpod
 try:
     import runpod
     logger.info("Successfully imported runpod")
 except Exception as e:
     logger.error(f"Error importing runpod: {e}")
-    import traceback
-    traceback.print_exc()
     raise
 
-# Global variable to hold the model
+# Global model object
 model = None
 
 def load_model():
-    """Load an alternative, publicly available model (Stable Diffusion XL)"""
+    """Load Stable Diffusion XL + IP-Adapter using temporary cache."""
     global model
-    
-    # Already loaded check
     if model is not None:
-        logger.info("Model already loaded, reusing existing model")
+        logger.info("Model already loaded, reusing...")
         return model
-    
+
     try:
-        # Import dependencies inside function to catch and report errors
-        logger.info("Importing torch, diffusers, transformers, diffusers.utils ")
         import torch
         from diffusers import AutoPipelineForText2Image, DDIMScheduler
         from transformers import CLIPVisionModelWithProjection
-        from diffusers.utils import load_image
-        
-        # Log environment info
+
         logger.info(f"PyTorch version: {torch.__version__}")
         logger.info(f"CUDA available: {torch.cuda.is_available()}")
         if torch.cuda.is_available():
             logger.info(f"CUDA device: {torch.cuda.get_device_name(0)}")
-            logger.info(f"CUDA memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
-        
-        # Device selection
+            logger.info(f"Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+
         device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Using device: {device}")
-        
-        # Model loading with clear progress indication
-        logger.info("Starting model download and loading")
-        logger.info("This may take several minutes on first run")
-        
-        start_time = time.time()
-        logger.info("Loading model: 'h94/IP-Adapter'")
+
+        logger.info("Loading CLIP image encoder from h94/IP-Adapter...")
         image_encoder = CLIPVisionModelWithProjection.from_pretrained(
             "h94/IP-Adapter",
             subfolder="models/image_encoder",
             torch_dtype=torch.float16,
+            cache_dir="/tmp/ip_adapter_encoder"
         )
-        
-        logger.info("Loading model: 'stabilityai/stable-diffusion-xl-base-1.0'")
+
+        logger.info("Loading Stable Diffusion XL base...")
         pipeline = AutoPipelineForText2Image.from_pretrained(
             "stabilityai/stable-diffusion-xl-base-1.0",
             torch_dtype=torch.float16,
             image_encoder=image_encoder,
+            cache_dir="/tmp/sdxl_model"
         )
-        
-        logger.info("Setting up DDIM scheduler")
-        pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
-        
-        logger.info("Setting up IP-Adapter")
-        pipeline.load_ip_adapter(
-        "h94/IP-Adapter",
-        subfolder="sdxl_models",
-        weight_name=["ip-adapter-plus_sdxl_vit-h.safetensors", "ip-adapter-plus-face_sdxl_vit-h.safetensors"]
-        )
-        
-        logger.info("Setting up IP-Adapter scale")
-        pipeline.set_ip_adapter_scale([0.7, 0.3])
 
-        # enable_model_cpu_offload to reduce memory usage
+        pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
+
+        logger.info("Loading IP-Adapter weights...")
+        pipeline.load_ip_adapter(
+            "h94/IP-Adapter",
+            subfolder="sdxl_models",
+            weight_name=[
+                "ip-adapter-plus_sdxl_vit-h.safetensors",
+                "ip-adapter-plus-face_sdxl_vit-h.safetensors"
+            ],
+            cache_dir="/tmp/ip_adapter_weights"
+        )
+
+        pipeline.set_ip_adapter_scale([0.7, 0.3])
         pipeline.enable_model_cpu_offload()
-        
-        # Move to device
-        logger.info(f"Moving model to {device}")
         pipeline = pipeline.to(device)
-        
-        # Enable memory optimizations for CUDA
+
         if device == "cuda":
-            logger.info("Enabling memory optimizations")
             pipeline.enable_attention_slicing()
-        
-        load_time = time.time() - start_time
-        logger.info(f"Model loaded successfully in {load_time:.2f} seconds")
-        
+
+        logger.info("Model loaded successfully.")
         model = pipeline
         return model
 
     except Exception as e:
-        logger.error(f"Error loading model: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        model = None
+        logger.exception("Failed to load model")
         raise RuntimeError(f"Failed to load model: {str(e)}")
 
 def to_base64_string(image):
-    """Convert a PIL image to a base64 string"""
-    buffered = BytesIO()
-    image.save(buffered, format="PNG")
-    img_str = base64.b64encode(buffered.getvalue()).decode()
-    return img_str
+    """Convert PIL image to base64 string."""
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode()
+
+def log_disk_space():
+    total, used, free = shutil.disk_usage("/")
+    logger.info(f"Disk: Total {total//2**30} GB | Used {used//2**30} GB | Free {free//2**30} GB")
+
+def clean_tmp_and_memory():
+    """Clean /tmp and free GPU/CPU memory."""
+    try:
+        logger.info("Cleaning memory and /tmp...")
+        if os.path.exists("/tmp"):
+            for f in os.listdir("/tmp"):
+                f_path = os.path.join("/tmp", f)
+                if os.path.isfile(f_path) or os.path.islink(f_path):
+                    os.unlink(f_path)
+                elif os.path.isdir(f_path):
+                    shutil.rmtree(f_path, ignore_errors=True)
+
+        gc.collect()
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        logger.info("Cleanup complete.")
+    except Exception as e:
+        logger.warning(f"Cleanup failed: {e}")
 
 def handler(event):
-    """Handle the serverless request to generate an image from text."""
+    """Main RunPod handler."""
     try:
-        # Log the event, but omit potentially large data
-        logger.info(f"Received event type: {type(event)}")
-        if isinstance(event, dict):
-            logger.info(f"Event keys: {list(event.keys())}")
-            
-        # Get input parameters from the request
+        logger.info(f"Received event with keys: {list(event.keys()) if isinstance(event, dict) else type(event)}")
+
         input_data = event.get("input", {})
-        logger.info(f"Input data: {json.dumps(input_data)}")
-        
-        # Load model if not already loaded
-        logger.info("Checking model status")
-        global model
-        
-        if model is None:
-            logger.info("Model not loaded, loading now...")
-            model = load_model()
-            if model is None:
-                error_msg = "Failed to load model after multiple attempts"
-                logger.error(error_msg)
-                return {"error": error_msg}
-        
-        # Extract parameters with defaults        
         prompt = input_data.get("prompt", "wonderwoman")
-        ip_adapter_image = input_data.get('ip_adapter_image', None)
+        ip_adapter_image = input_data.get("ip_adapter_image", None)
         negative_prompt = input_data.get("negative_prompt", "monochrome, lowres, bad anatomy, worst quality, low quality")
-        
+
+        log_disk_space()
+
+        # Load model
+        global model
+        if model is None:
+            model = load_model()
+
+        # Load image from base64 (IP Adapter input)
+        loaded_images = []
         if ip_adapter_image:
-            # Load images as BytesIO objects instead of PIL Images
-            loaded_images = []
             for image_data in ip_adapter_image:
                 image_bytes = base64.b64decode(image_data)
                 loaded_images.append(io.BytesIO(image_bytes))
 
-        # Generate image
-        logger.info(f"Generating image with prompt: '{prompt}'")
+        logger.info(f"Generating image for prompt: '{prompt}'")
         start_time = time.time()
-        
-        # Simple generation with fewer parameters to avoid errors
+
         result = model(
             prompt=prompt,
             ip_adapter_image=loaded_images,
             negative_prompt=negative_prompt
         )
-        
-        generation_time = time.time() - start_time
-        logger.info(f"Generated image in {generation_time:.2f} seconds")
-        
-        # Convert image to base64
-        logger.info("Converting image to base64")
-        image_data = to_base64_string(result.images[0])
-        
-        # Return the result
+
+        gen_time = time.time() - start_time
+        logger.info(f"Image generated in {gen_time:.2f} seconds")
+
+        # Encode result to base64
+        image_base64 = to_base64_string(result.images[0])
+
+        # Cleanup to prevent storage overflow
+        clean_tmp_and_memory()
+
         return {
-            "image": image_data,
+            "image": image_base64,
             "metrics": {
-                "generation_time": generation_time
+                "generation_time": gen_time
             }
         }
-    
+
     except Exception as e:
-        error_msg = f"Error generating image: {str(e)}"
-        logger.error(error_msg)
-        import traceback
-        traceback.print_exc()
-        return {"error": error_msg}
+        logger.exception("Error during handler execution")
+        return {"error": f"Error generating image: {str(e)}"}
 
-# Startup message before starting the serverless function
-logger.info("Starting runpod serverless with alternative handler")
-
-# Start the serverless function
+# Run the serverless entry
+logger.info("Starting RunPod serverless handler")
 try:
     runpod.serverless.start({"handler": handler})
 except Exception as e:
-    logger.error(f"Failed to start serverless function: {e}")
-    import traceback
-    traceback.print_exc()
+    logger.exception("Failed to start serverless handler")
