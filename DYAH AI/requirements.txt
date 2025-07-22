@@ -1,0 +1,8 @@
+runpod==1.7.9
+torch==2.0.1
+diffusers[torch]==0.21.4
+transformers==4.33.0
+accelerate==0.23.0
+safetensors==0.3.3
+xformers==0.0.21
+Pillow==10.0.0

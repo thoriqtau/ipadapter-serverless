@@ -1,0 +1,22 @@
+{
+  "handler": "handler.py",
+  "container": {
+    "gpu": 1,
+    "cpu": 4,
+    "memory": 16384,
+    "gpu_type": "NVIDIA A10G"
+  },
+  "warmup": {
+    "enabled": true,
+    "timeout": 300,
+    "concurrency": 1
+  },
+  "runtime": {
+    "timeout": 300
+  },
+  "network": {
+    "egress": {
+      "domains": ["huggingface.co", "cdn-lfs.huggingface.co"]
+    }
+  }
+}
