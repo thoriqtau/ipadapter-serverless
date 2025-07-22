@@ -86,9 +86,9 @@ def load_model():
         
         logger.info("Setting up IP-Adapter")
         pipeline.load_ip_adapter(
-        "h94/IP-Adapter",
-        subfolder="sdxl_models",
-        weight_name=["ip-adapter-plus_sdxl_vit-h.safetensors", "ip-adapter-plus-face_sdxl_vit-h.safetensors"]
+            "h94/IP-Adapter",
+            subfolder="sdxl_models",
+            weight_name=["ip-adapter-plus_sdxl_vit-h.safetensors", "ip-adapter-plus-face_sdxl_vit-h.safetensors"]
         )
         
         logger.info("Setting up IP-Adapter scale")
