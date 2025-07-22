@@ -28,7 +28,7 @@ ENV TRANSFORMERS_CACHE=/tmp/huggingface
 ENV HF_HUB_DOWNLOAD_TIMEOUT=600
 ENV SAFETENSORS_FAST_GPU=1
 ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
-ENV HF_HUB_ENABLE_HF_TRANSFER=0  # Disable fast-transfer for safety
+ENV HF_HUB_ENABLE_HF_TRANSFER=0 
 
 # Message for build logs
 RUN echo "Container setup complete - handler ready to run."
