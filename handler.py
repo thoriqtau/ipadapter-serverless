@@ -6,6 +6,7 @@ import json
 from io import BytesIO
 import io
 import logging
+from PIL import Image
 
 # Configure logging
 logging.basicConfig(
@@ -93,18 +94,10 @@ def load_model():
         
         logger.info("Setting up IP-Adapter scale")
         pipeline.set_ip_adapter_scale([0.7, 0.3])
-
-        # enable_model_cpu_offload to reduce memory usage
-        pipeline.enable_model_cpu_offload()
         
         # Move to device
         logger.info(f"Moving model to {device}")
         pipeline = pipeline.to(device)
-        
-        # Enable memory optimizations for CUDA
-        if device == "cuda":
-            logger.info("Enabling memory optimizations")
-            pipeline.enable_attention_slicing()
         
         load_time = time.time() - start_time
         logger.info(f"Model loaded successfully in {load_time:.2f} seconds")
@@ -118,6 +111,10 @@ def load_model():
         traceback.print_exc()
         model = None
         raise RuntimeError(f"Failed to load model: {str(e)}")
+
+def decode_base64_to_image(b64_string):
+    image_data = base64.b64decode(b64_string)
+    return Image.open(io.BytesIO(image_data)).convert("RGB")
 
 def to_base64_string(image):
     """Convert a PIL image to a base64 string"""
@@ -157,10 +154,7 @@ def handler(event):
         
         if ip_adapter_image:
             # Load images as BytesIO objects instead of PIL Images
-            loaded_images = []
-            for image_data in ip_adapter_image:
-                image_bytes = base64.b64decode(image_data)
-                loaded_images.append(io.BytesIO(image_bytes))
+            loaded_images = [decode_base64_to_image(b64) for b64 in ip_adapter_image]
 
         # Generate image
         logger.info(f"Generating image with prompt: '{prompt}'")
