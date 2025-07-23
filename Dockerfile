@@ -1,15 +1,16 @@
-FROM runpod/pytorch:2.0.1-py3.10-cuda11.8.0-devel 
+FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
 
 # Install dependencies with explicit version pinning for reliability 
 RUN pip3 install --upgrade pip && \ 
     echo "Installing dependencies..." && \ 
-    pip3 install diffusers==0.21.4 \ 
-                transformers==4.31.0 \ 
-                accelerate==0.21.0 \ 
+    pip3 install --no-cache-dir torch==2.0.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 \
+                diffusers==0.34.0 \ 
+                transformers==4.53.2 \ 
+                accelerate==1.9.0 \ 
                 runpod \ 
                 pillow \ 
                 safetensors \ 
-                huggingface_hub==0.19.4 && \ 
+                huggingface_hub==0.33.4 && \ 
     echo "Dependencies installed successfully" 
 
 # Create working directory 
